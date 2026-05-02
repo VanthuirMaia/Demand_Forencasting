@@ -1,0 +1,11 @@
+tensorflow
+torch
+pytorch-forecasting
+statsmodels
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+openpyxl
+jupyter
