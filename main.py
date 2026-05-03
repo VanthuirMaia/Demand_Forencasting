@@ -1,4 +1,14 @@
+import random
 import numpy as np
+import tensorflow as tf
+import torch
+
+# ── Reprodutibilidade ─────────────────────────────────────────────────────────
+SEED = 42
+random.seed(SEED)
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
+torch.manual_seed(SEED)
 
 from src.pipeline.loader import carregar_serie_temporal, validar_serie_temporal
 from src.pipeline.preprocessor import preparar_dataset
@@ -100,9 +110,16 @@ for nome, construir, treinar, prever in [
     print(f"  {nome} — MAE: {res['MAE']:.2f}  RMSE: {res['RMSE']:.2f}  MAPE: {res['MAPE']:.2f}%")
 
 # ── [5/6] TFT ────────────────────────────────────────────────────────────────
+# Subconjunto com as 10 primeiras lojas e 10 primeiros itens (100 séries),
+# reduzindo ~876k para ~175k amostras e tornando o treino viável em CPU.
 print("\n[5/6] Treinando TFT...")
+_lojas_tft = sorted(df_proc["store"].unique())[:10]
+_itens_tft = sorted(df_proc["item"].unique())[:10]
+df_proc_tft = df_proc[
+    df_proc["store"].isin(_lojas_tft) & df_proc["item"].isin(_itens_tft)
+]
 ds_treino_tft, ds_val_tft = preparar_dataset_tft(
-    df_proc, COLUNA_ALVO, COLUNAS_GRUPO
+    df_proc_tft, COLUNA_ALVO, COLUNAS_GRUPO
 )
 modelo_tft = construir_tft(ds_treino_tft)
 trainer_tft, melhor_tft = treinar_tft(
@@ -111,11 +128,11 @@ trainer_tft, melhor_tft = treinar_tft(
 )
 preds_tft = prever_tft(melhor_tft, ds_val_tft)
 
-# y_real do TFT: últimos 7 dias de cada série no df_proc
+# y_real do TFT: últimos 7 dias de cada série no subconjunto filtrado
 tamanho_predicao_tft = 7
-data_inicio_val = df_proc["date"].max() - np.timedelta64(tamanho_predicao_tft - 1, "D")
+data_inicio_val = df_proc_tft["date"].max() - np.timedelta64(tamanho_predicao_tft - 1, "D")
 y_real_tft = (
-    df_proc[df_proc["date"] >= data_inicio_val]
+    df_proc_tft[df_proc_tft["date"] >= data_inicio_val]
     .sort_values(["date", "store", "item"])[COLUNA_ALVO]
     .values.astype(float)
 )
