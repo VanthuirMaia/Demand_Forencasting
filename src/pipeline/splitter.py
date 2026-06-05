@@ -61,26 +61,32 @@ def criar_janelas(
     coluna_alvo: str,
     colunas_features: list[str],
     tamanho_janela: int = 30,
+    colunas_grupo: list[str] = ["store", "item"],
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Cria arrays X e y no formato de janela deslizante.
+    Respeita fronteiras entre séries — nunca mistura grupos diferentes.
 
     X: (amostras, tamanho_janela, n_features)
     y: (amostras,) — valor do alvo imediatamente após cada janela
     """
-    X_vals = df[colunas_features].values
-    y_vals = df[coluna_alvo].values
+    X_list, y_list = [], []
 
-    n_amostras = len(df) - tamanho_janela
-    n_features = len(colunas_features)
+    for _, grupo in df.groupby(colunas_grupo, sort=False):
+        grupo = grupo.sort_values("date")
+        X_vals = grupo[colunas_features].values
+        y_vals = grupo[coluna_alvo].values
 
-    X = np.empty((n_amostras, tamanho_janela, n_features), dtype=np.float32)
-    y = np.empty(n_amostras, dtype=np.float32)
+        n_amostras = len(grupo) - tamanho_janela
+        if n_amostras <= 0:
+            continue
 
-    for i in range(n_amostras):
-        X[i] = X_vals[i : i + tamanho_janela]
-        y[i] = y_vals[i + tamanho_janela]
+        for i in range(n_amostras):
+            X_list.append(X_vals[i : i + tamanho_janela])
+            y_list.append(y_vals[i + tamanho_janela])
+
+    X = np.array(X_list, dtype=np.float32)
+    y = np.array(y_list, dtype=np.float32)
 
     print(f"Janelas criadas — X: {X.shape}, y: {y.shape}")
-
     return X, y

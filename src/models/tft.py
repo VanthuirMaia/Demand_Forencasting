@@ -102,8 +102,14 @@ def treinar_tft(
     dataset_val: TimeSeriesDataSet,
     max_epochs: int = 20,
     batch_size: int = 64,
+    checkpoint_dir: str = "checkpoints/tft_lightning",
+    accelerator: str = "auto",
+    ckpt_path: str | None = None,
 ) -> tuple:
-    """Treina o TFT com EarlyStopping. Retorna (trainer, melhor_modelo)."""
+    """Treina o TFT com EarlyStopping. Retorna (trainer, melhor_modelo).
+
+    ckpt_path: caminho para um .ckpt do Lightning para retomar treino interrompido.
+    """
     train_loader = dataset_treino.to_dataloader(
         train=True, batch_size=batch_size, num_workers=0
     )
@@ -112,11 +118,17 @@ def treinar_tft(
     )
 
     early_stop = EarlyStopping(monitor="val_loss", patience=5, mode="min", verbose=True)
-    checkpoint = ModelCheckpoint(monitor="val_loss", mode="min", save_top_k=1)
+    checkpoint = ModelCheckpoint(
+        dirpath=checkpoint_dir,
+        monitor="val_loss",
+        mode="min",
+        save_top_k=1,
+        save_last=True,  # permite retomar treino em caso de interrupção
+    )
 
     trainer = pl.Trainer(
         max_epochs=max_epochs,
-        accelerator="cpu",
+        accelerator=accelerator,
         gradient_clip_val=0.1,
         callbacks=[early_stop, checkpoint],
         enable_progress_bar=True,
@@ -124,7 +136,7 @@ def treinar_tft(
         logger=False,
     )
 
-    trainer.fit(modelo_tft, train_loader, val_loader)
+    trainer.fit(modelo_tft, train_loader, val_loader, ckpt_path=ckpt_path)
 
     # Carrega pesos do melhor epoch (menor val_loss)
     if checkpoint.best_model_path:
@@ -140,6 +152,7 @@ def treinar_tft(
 def prever_tft(
     modelo_tft: TemporalFusionTransformer,
     dataset_val: TimeSeriesDataSet,
+    accelerator: str = "auto",
 ) -> np.ndarray:
     """
     Gera predições na escala original.
@@ -150,7 +163,7 @@ def prever_tft(
         return_y=False,
         batch_size=128,
         num_workers=0,
-        trainer_kwargs={"accelerator": "cpu"},
+        trainer_kwargs={"accelerator": accelerator},
     )
     # predict() retorna tensor (amostras, tamanho_predicao) — flatten para 1D
     if isinstance(predicoes, torch.Tensor):
