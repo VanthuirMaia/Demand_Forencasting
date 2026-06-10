@@ -17,6 +17,9 @@ from src.models.arima import (
     preparar_serie_arima,
     prever_arima,
 )
+from src.models.mlp import construir_mlp, treinar_mlp, prever_mlp
+from src.models.lstm import construir_lstm, treinar_lstm, prever_lstm
+from src.models.gru import construir_gru, treinar_gru, prever_gru
 from src.experiments.multi_seed import executar_experimento
 from src.baselines import snaive_por_serie, calcular_mase_snaive
 
@@ -184,6 +187,10 @@ else:
 # Não há skip por _resultado_salvo aqui: a retomada é responsabilidade do experimento.
 input_shape = (TAMANHO_JANELA, len(features))
 
+_construir = {"MLP": construir_mlp, "LSTM": construir_lstm, "GRU": construir_gru}
+_treinar   = {"MLP": treinar_mlp,   "LSTM": treinar_lstm,   "GRU": treinar_gru}
+_prever    = {"MLP": prever_mlp,    "LSTM": prever_lstm,    "GRU": prever_gru}
+
 for nome in ["MLP", "LSTM", "GRU"]:
     if not _deve_rodar(nome.lower()):
         print(f"\n[5/6] {nome} pulado (--modelo={RODAR}).")
@@ -196,16 +203,17 @@ for nome in ["MLP", "LSTM", "GRU"]:
 
     print(f"\n[5/6] Treinando {nome} (seeds={SEEDS})...")
     resultado_exp = executar_experimento(
-        nome=nome,
+        nome,
+        _construir[nome], _treinar[nome], _prever[nome],
+        X_tr, y_tr, X_te, y_te_real, sc_alvo, input_shape,
+        df_treino=df_treino,
+        df_te_norm=df_te_norm,
+        colunas_grupo=COLUNAS_GRUPO,
+        coluna_alvo=COLUNA_ALVO,
         seeds=SEEDS,
-        X_tr=X_tr, y_tr=y_tr,
-        X_te=X_te, y_te_real=y_te_real,
-        sc_alvo=sc_alvo,
-        input_shape=input_shape,
         epochs=EPOCHS_NEURAIS,
         batch_size=BATCH_NEURAL,
         caminho_csv=CAMINHO_CSV_SEEDS,
-        denominador_mase=denominador_mase,
     )
 
     res_seed42 = resultado_exp["seed42"]["metricas"]
