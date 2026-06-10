@@ -217,6 +217,11 @@ for nome in ["MLP", "LSTM", "GRU"]:
     )
 
     df_exp = resultado_exp  # DataFrame [modelo, seed, mae, rmse, mape, mase]
+    if df_exp.empty:
+        # Todas as seeds já estavam concluídas — carrega do CSV gravado anteriormente
+        import pandas as _pd
+        df_exp = _pd.read_csv(CAMINHO_CSV_SEEDS)
+        df_exp = df_exp[df_exp["modelo"] == nome]
     row_seed42 = df_exp[df_exp["seed"] == 42].iloc[0]
     res_seed42 = {
         "Modelo": nome,
