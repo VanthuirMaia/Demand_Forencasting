@@ -222,9 +222,16 @@ for nome in ["MLP", "LSTM", "GRU"]:
         import pandas as _pd
         df_exp = _pd.read_csv(CAMINHO_CSV_SEEDS)
         df_exp = df_exp[df_exp["modelo"] == nome]
-    row_seed42 = df_exp[df_exp["seed"] == 42].iloc[0]
+    mask = (df_exp["seed"] == 42)
+    if mask.sum() == 0:
+        import pandas as _pd
+        df_csv = _pd.read_csv(CAMINHO_CSV_SEEDS)
+        mask = (df_csv["modelo"] == nome) & (df_csv["seed"] == 42)
+        row_seed42 = df_csv[mask].iloc[0]
+    else:
+        row_seed42 = df_exp[mask].iloc[0]
     res_seed42 = {
-        "Modelo": nome,
+        "modelo": nome,
         "MAE": row_seed42["mae"],
         "RMSE": row_seed42["rmse"],
         "MAPE": row_seed42["mape"],

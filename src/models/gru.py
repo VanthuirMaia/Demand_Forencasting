@@ -36,6 +36,7 @@ def treinar_gru(
     early_stop = keras.callbacks.EarlyStopping(
         monitor="val_loss",
         patience=10,
+        min_delta=0.0001,
         restore_best_weights=True,
     )
 
