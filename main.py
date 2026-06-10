@@ -140,7 +140,7 @@ joblib.dump(sc_alvo, os.path.join(CHECKPOINT_DIR, "sc_alvo.pkl"))
 print("  Calculando baseline sNaïve (sazonalidade 7 dias)...")
 df_treino_tail7 = df_treino.groupby(COLUNAS_GRUPO).tail(7)
 res_snaive = snaive_por_serie(df_treino_tail7, df_teste, COLUNAS_GRUPO, COLUNA_ALVO)
-denominador_mase = calcular_mase_snaive(df_treino, COLUNA_ALVO, COLUNAS_GRUPO)
+denominador_mase = calcular_mase_snaive(df_treino, df_teste, COLUNAS_GRUPO, COLUNA_ALVO)
 print(f"  sNaïve — MAE: {res_snaive['MAE']:.2f}  RMSE: {res_snaive['RMSE']:.2f}  MAPE: {res_snaive['MAPE']:.2f}%")
 
 resultados = [res_snaive]
