@@ -14,9 +14,15 @@ def preparar_dataset_tft(
     coluna_alvo: str = "sales",
     colunas_grupo: list[str] = ["store", "item"],
     tamanho_encoder: int = 30,
-    tamanho_predicao: int = 7,
+    tamanho_predicao: int = 1,
 ) -> tuple[TimeSeriesDataSet, TimeSeriesDataSet]:
-    """Prepara TimeSeriesDataSet de treino e validação para o TFT."""
+    """
+    Prepara TimeSeriesDataSet de treino e validação para o TFT.
+
+    tamanho_predicao=1 alinha o horizonte com MLP/LSTM/GRU (padrão novo).
+    Para reproduzir o experimento anterior com horizonte 7: tamanho_predicao=7.
+    tamanho_encoder=30 mantido (janela de contexto igual aos modelos neurais).
+    """
     df = df.copy()
 
     # time_idx: inteiro sequencial global (dias desde a primeira data do DataFrame)
@@ -76,18 +82,25 @@ def preparar_dataset_tft(
 
 def construir_tft(
     dataset_treino: TimeSeriesDataSet,
-    hidden_size: int = 32,
+    hidden_size: int = 128,
     dropout: float = 0.1,
     learning_rate: float = 0.001,
 ) -> TemporalFusionTransformer:
-    """Instancia o TFT a partir do dataset de treino."""
+    """
+    Instancia o TFT a partir do dataset de treino.
+
+    hidden_size=128 (novo padrão, ~4× mais capacidade que 32).
+    learning_rate: ajustar se val_loss estagnar na época 1 (sinal de LR inadequada).
+    hidden_size deve ser divisível por 4 (attention_head_size=4).
+    Para reverter ao padrão antigo: construir_tft(ds, hidden_size=32).
+    """
     modelo = TemporalFusionTransformer.from_dataset(
         dataset_treino,
         learning_rate=learning_rate,
         hidden_size=hidden_size,
-        attention_head_size=4,       # hidden_size deve ser divisível por 4
+        attention_head_size=4,
         dropout=dropout,
-        hidden_continuous_size=16,
+        hidden_continuous_size=hidden_size // 8,  # proporcional ao hidden_size
         loss=QuantileLoss(),
         log_interval=10,
         reduce_on_plateau_patience=4,
@@ -117,7 +130,8 @@ def treinar_tft(
         train=False, batch_size=batch_size * 2, num_workers=0
     )
 
-    early_stop = EarlyStopping(monitor="val_loss", patience=5, mode="min", verbose=True)
+    # patience=10: o loss estagnado na época 1 da rodada anterior sugeria que 5 matava cedo
+    early_stop = EarlyStopping(monitor="val_loss", patience=10, mode="min", verbose=True)
     checkpoint = ModelCheckpoint(
         dirpath=checkpoint_dir,
         monitor="val_loss",

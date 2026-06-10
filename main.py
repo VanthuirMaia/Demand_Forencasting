@@ -52,6 +52,8 @@ EPOCHS_NEURAIS = 50
 BATCH_NEURAL = 512
 EPOCHS_TFT = 50
 BATCH_TFT = 64
+# Horizonte 1 alinha TFT com MLP/LSTM/GRU; use 7 para reproduzir experimento anterior
+TFT_HORIZONTE = 1
 
 CHECKPOINT_DIR = "checkpoints"
 TFT_CKPT_DIR = os.path.join(CHECKPOINT_DIR, "tft_lightning")
@@ -189,7 +191,8 @@ if _resultado_salvo("TFT"):
 else:
     df_proc_tft = df_proc
     ds_treino_tft, ds_val_tft = preparar_dataset_tft(
-        df_proc_tft, COLUNA_ALVO, COLUNAS_GRUPO
+        df_proc_tft, COLUNA_ALVO, COLUNAS_GRUPO,
+        tamanho_predicao=TFT_HORIZONTE,
     )
     modelo_tft = construir_tft(ds_treino_tft)
 
@@ -208,9 +211,8 @@ else:
     )
     preds_tft = prever_tft(melhor_tft, ds_val_tft, accelerator=ACELERADOR_TORCH)
 
-    # y_real do TFT: últimos 7 dias de cada série no subconjunto filtrado
-    tamanho_predicao_tft = 7
-    data_inicio_val = df_proc_tft["date"].max() - np.timedelta64(tamanho_predicao_tft - 1, "D")
+    # y_real do TFT: últimos TFT_HORIZONTE dias de cada série no subconjunto filtrado
+    data_inicio_val = df_proc_tft["date"].max() - np.timedelta64(TFT_HORIZONTE - 1, "D")
     y_real_tft = (
         df_proc_tft[df_proc_tft["date"] >= data_inicio_val]
         .sort_values(["date", "store", "item"])[COLUNA_ALVO]
