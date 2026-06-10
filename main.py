@@ -216,14 +216,27 @@ for nome in ["MLP", "LSTM", "GRU"]:
         caminho_csv=CAMINHO_CSV_SEEDS,
     )
 
-    res_seed42 = resultado_exp["seed42"]["metricas"]
-    preds_seed42 = resultado_exp["seed42"]["preds"]
-    stats_multi_seed[nome] = resultado_exp["stats"]
+    df_exp = resultado_exp  # DataFrame [modelo, seed, mae, rmse, mape, mase]
+    row_seed42 = df_exp[df_exp["seed"] == 42].iloc[0]
+    res_seed42 = {
+        "Modelo": nome,
+        "MAE": row_seed42["mae"],
+        "RMSE": row_seed42["rmse"],
+        "MAPE": row_seed42["mape"],
+        "MASE": row_seed42["mase"],
+    }
+    preds_seed42 = None  # executar_experimento não retorna predições
+    stats_multi_seed[nome] = {
+        "MAE_mean": df_exp["mae"].mean(), "MAE_std": df_exp["mae"].std(),
+        "RMSE_mean": df_exp["rmse"].mean(), "RMSE_std": df_exp["rmse"].std(),
+        "MAPE_mean": df_exp["mape"].mean(), "MAPE_std": df_exp["mape"].std(),
+    }
 
     _salvar_resultado(nome, res_seed42, preds_seed42)
 
     resultados.append(res_seed42)
-    predicoes_por_modelo[nome] = preds_seed42
+    if preds_seed42 is not None:
+        predicoes_por_modelo[nome] = preds_seed42
 
     print(
         f"  {nome} (seed 42) — MAE: {res_seed42['MAE']:.2f}  "
