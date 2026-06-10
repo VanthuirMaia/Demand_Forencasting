@@ -50,7 +50,7 @@ DATA_CORTE = None  # None = automático (80/20 temporal)
 
 EPOCHS_NEURAIS = 50
 BATCH_NEURAL = 512
-EPOCHS_TFT = 20
+EPOCHS_TFT = 50
 BATCH_TFT = 64
 
 CHECKPOINT_DIR = "checkpoints"
