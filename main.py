@@ -4,10 +4,6 @@ import json
 
 import joblib
 import numpy as np
-import torch
-
-# ── PyTorch seed para TFT (PyTorch/Lightning) ─────────────────────────────────
-torch.manual_seed(42)
 
 import tensorflow as tf
 
@@ -20,12 +16,6 @@ from src.models.arima import (
     construir_e_treinar_arima,
     preparar_serie_arima,
     prever_arima,
-)
-from src.models.tft import (
-    construir_tft,
-    preparar_dataset_tft,
-    prever_tft,
-    treinar_tft,
 )
 from src.experiments.multi_seed import executar_experimento
 from src.baselines import snaive_por_serie, calcular_mase_snaive
@@ -81,14 +71,7 @@ TFT_CKPT_DIR = os.path.join(CHECKPOINT_DIR, "tft_lightning")
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 os.makedirs(TFT_CKPT_DIR, exist_ok=True)
 
-# ── Detecção de GPU ───────────────────────────────────────────────────────────
-def _detectar_acelerador_torch() -> str:
-    if torch.cuda.is_available():
-        print(f"  PyTorch/TFT: GPU detectada — {torch.cuda.get_device_name(0)}")
-        return "gpu"
-    print("  PyTorch/TFT: nenhuma GPU detectada, usando CPU.")
-    return "cpu"
-
+# ── Detecção de GPU (TensorFlow) ─────────────────────────────────────────────
 def _verificar_gpu_tensorflow():
     gpus = tf.config.list_physical_devices("GPU")
     if gpus:
@@ -98,9 +81,8 @@ def _verificar_gpu_tensorflow():
     else:
         print("  TensorFlow: nenhuma GPU detectada, usando CPU.")
 
-print("Verificando aceleradores disponíveis...")
+print("Verificando aceleradores TensorFlow...")
 _verificar_gpu_tensorflow()
-ACELERADOR_TORCH = _detectar_acelerador_torch()
 
 # ── Helpers de checkpoint ─────────────────────────────────────────────────────
 def _ckpt_result_path(nome: str) -> str:
@@ -263,6 +245,21 @@ elif _resultado_salvo("TFT"):
     predicoes_por_modelo["TFT"] = preds_tft
     print(f"  TFT — MAE: {res_tft['MAE']:.2f}  RMSE: {res_tft['RMSE']:.2f}  MAPE: {res_tft['MAPE']:.2f}%")
 else:
+    import torch
+    torch.manual_seed(42)
+    from src.models.tft import (
+        construir_tft,
+        preparar_dataset_tft,
+        prever_tft,
+        treinar_tft,
+    )
+    if torch.cuda.is_available():
+        print(f"  PyTorch/TFT: GPU detectada — {torch.cuda.get_device_name(0)}")
+        ACELERADOR_TORCH = "gpu"
+    else:
+        print("  PyTorch/TFT: nenhuma GPU detectada, usando CPU.")
+        ACELERADOR_TORCH = "cpu"
+
     df_proc_tft = df_proc
     ds_treino_tft, ds_val_tft = preparar_dataset_tft(
         df_proc_tft, COLUNA_ALVO, COLUNAS_GRUPO,
