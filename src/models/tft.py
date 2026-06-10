@@ -100,7 +100,7 @@ def treinar_tft(
     modelo_tft: TemporalFusionTransformer,
     dataset_treino: TimeSeriesDataSet,
     dataset_val: TimeSeriesDataSet,
-    max_epochs: int = 20,
+    max_epochs: int = 50,
     batch_size: int = 64,
     checkpoint_dir: str = "checkpoints/tft_lightning",
     accelerator: str = "auto",
