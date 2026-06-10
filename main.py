@@ -1,18 +1,15 @@
+import argparse
 import os
 import json
-import random
 
 import joblib
 import numpy as np
-import tensorflow as tf
 import torch
 
-# ── Reprodutibilidade ─────────────────────────────────────────────────────────
-SEED = 42
-random.seed(SEED)
-np.random.seed(SEED)
-tf.random.set_seed(SEED)
-torch.manual_seed(SEED)
+# ── PyTorch seed para TFT (PyTorch/Lightning) ─────────────────────────────────
+torch.manual_seed(42)
+
+import tensorflow as tf
 
 from src.pipeline.loader import carregar_serie_temporal, validar_serie_temporal
 from src.pipeline.preprocessor import preparar_dataset
@@ -24,15 +21,14 @@ from src.models.arima import (
     preparar_serie_arima,
     prever_arima,
 )
-from src.models.gru import construir_gru, prever_gru, treinar_gru
-from src.models.lstm import construir_lstm, prever_lstm, treinar_lstm
-from src.models.mlp import construir_mlp, prever_mlp, treinar_mlp
 from src.models.tft import (
     construir_tft,
     preparar_dataset_tft,
     prever_tft,
     treinar_tft,
 )
+from src.experiments.multi_seed import executar_experimento
+from src.baselines import snaive_por_serie, calcular_mase_snaive
 
 from src.evaluation.metricas import comparar_modelos
 from src.evaluation.comparativo import (
@@ -40,6 +36,27 @@ from src.evaluation.comparativo import (
     plotar_comparativo_metricas,
     plotar_predicoes,
 )
+
+# ── Argparse ──────────────────────────────────────────────────────────────────
+parser = argparse.ArgumentParser(description="Demand Forecasting Pipeline")
+parser.add_argument(
+    "--modelo",
+    choices=["arima", "mlp", "lstm", "gru", "tft", "todos"],
+    default="todos",
+    help="Modelo(s) a treinar (default: todos)",
+)
+parser.add_argument(
+    "--drive_path",
+    type=str,
+    default=None,
+    help="Caminho alternativo para o CSV de métricas por seed (ex.: Google Drive no Colab)",
+)
+args = parser.parse_args()
+
+RODAR = args.modelo
+
+def _deve_rodar(nome: str) -> bool:
+    return RODAR == "todos" or RODAR == nome.lower()
 
 # ── Configurações ─────────────────────────────────────────────────────────────
 CAMINHO_DADOS = "data/raw/train.csv"
@@ -54,6 +71,10 @@ EPOCHS_TFT = 50
 BATCH_TFT = 64
 # Horizonte 1 alinha TFT com MLP/LSTM/GRU; use 7 para reproduzir experimento anterior
 TFT_HORIZONTE = 1
+
+SEEDS = [42, 123, 7, 2024, 99]
+# --drive_path sobrescreve o caminho padrão local (útil no Colab com Google Drive)
+CAMINHO_CSV_SEEDS = args.drive_path if args.drive_path else "checkpoints/metricas_por_seed.csv"
 
 CHECKPOINT_DIR = "checkpoints"
 TFT_CKPT_DIR = os.path.join(CHECKPOINT_DIR, "tft_lightning")
@@ -133,8 +154,16 @@ y_te_real = sc_alvo.inverse_transform(y_te.reshape(-1, 1)).flatten()
 # Salva scaler para eventual recarga dos modelos TF
 joblib.dump(sc_alvo, os.path.join(CHECKPOINT_DIR, "sc_alvo.pkl"))
 
-resultados = []
+# sNaïve baseline — calculado logo após a divisão treino/teste
+print("  Calculando baseline sNaïve (sazonalidade 7 dias)...")
+df_treino_tail7 = df_treino.groupby(COLUNAS_GRUPO).tail(7)
+res_snaive = snaive_por_serie(df_teste, df_treino_tail7, COLUNA_ALVO, COLUNAS_GRUPO)
+denominador_mase = calcular_mase_snaive(df_treino, COLUNA_ALVO, COLUNAS_GRUPO)
+print(f"  sNaïve — MAE: {res_snaive['MAE']:.2f}  RMSE: {res_snaive['RMSE']:.2f}  MAPE: {res_snaive['MAPE']:.2f}%")
+
+resultados = [res_snaive]
 predicoes_por_modelo = {}
+stats_multi_seed = {}
 
 # ── [4/6] ARIMA baseline ──────────────────────────────────────────────────────
 # ARIMA opera sobre a série agregada (soma de todas as lojas/itens por dia).
@@ -142,9 +171,17 @@ predicoes_por_modelo = {}
 # modelos neurais operam em escala de vendas por série (~50). O comparativo
 # numérico deve ser interpretado com essa diferença em mente.
 print("\n[4/6] Treinando ARIMA...")
-if _resultado_salvo("ARIMA"):
+if not _deve_rodar("arima"):
+    print(f"  ARIMA pulado (--modelo={RODAR}).")
+    if _resultado_salvo("ARIMA"):
+        res_arima, _ = _carregar_resultado("ARIMA")
+        resultados.append(res_arima)
+        print(f"  ARIMA — MAE: {res_arima['MAE']:.2f}  RMSE: {res_arima['RMSE']:.2f}  MAPE: {res_arima['MAPE']:.2f}%")
+elif _resultado_salvo("ARIMA"):
     print("  Checkpoint encontrado — pulando treino ARIMA.")
     res_arima, _ = _carregar_resultado("ARIMA")
+    resultados.append(res_arima)
+    print(f"  ARIMA — MAE: {res_arima['MAE']:.2f}  RMSE: {res_arima['RMSE']:.2f}  MAPE: {res_arima['MAPE']:.2f}%")
 else:
     data_corte_arima = df_treino["date"].max()
     serie_tr_arima, serie_te_arima = preparar_serie_arima(
@@ -152,42 +189,79 @@ else:
     )
     modelo_arima = construir_e_treinar_arima(serie_tr_arima)
     preds_arima = prever_arima(modelo_arima, serie_te_arima)
-    res_arima = calcular_metricas(serie_te_arima.values, preds_arima, "ARIMA")
+    res_arima = calcular_metricas(serie_te_arima.values, preds_arima, "ARIMA", mase=None)
     _salvar_resultado("ARIMA", res_arima)
+    resultados.append(res_arima)
+    print(f"  ARIMA — MAE: {res_arima['MAE']:.2f}  RMSE: {res_arima['RMSE']:.2f}  MAPE: {res_arima['MAPE']:.2f}%")
 
-resultados.append(res_arima)
-print(f"  ARIMA — MAE: {res_arima['MAE']:.2f}  RMSE: {res_arima['RMSE']:.2f}  MAPE: {res_arima['MAPE']:.2f}%")
-
-# ── [5/6] Modelos neurais: MLP, LSTM, GRU ────────────────────────────────────
+# ── [5/6] Modelos neurais: MLP, LSTM, GRU (multi-seed) ───────────────────────
+# executar_experimento gerencia o loop de seeds, retomada via CSV e MASE interno.
+# Não há skip por _resultado_salvo aqui: a retomada é responsabilidade do experimento.
 input_shape = (TAMANHO_JANELA, len(features))
 
-for nome, construir, treinar, prever in [
-    ("MLP",  construir_mlp,  treinar_mlp,  prever_mlp),
-    ("LSTM", construir_lstm, treinar_lstm, prever_lstm),
-    ("GRU",  construir_gru,  treinar_gru,  prever_gru),
-]:
-    print(f"\n[5/6] Treinando {nome}...")
-    if _resultado_salvo(nome):
-        print(f"  Checkpoint encontrado — pulando treino {nome}.")
-        res, preds = _carregar_resultado(nome)
-    else:
-        modelo = construir(input_shape=input_shape)
-        treinar(modelo, X_tr, y_tr, epochs=EPOCHS_NEURAIS, batch_size=BATCH_NEURAL)
-        preds = prever(modelo, X_te, sc_alvo)
-        res = calcular_metricas(y_te_real, preds, nome)
-        _salvar_resultado(nome, res, preds)
+for nome in ["MLP", "LSTM", "GRU"]:
+    if not _deve_rodar(nome.lower()):
+        print(f"\n[5/6] {nome} pulado (--modelo={RODAR}).")
+        if _resultado_salvo(nome):
+            res, preds = _carregar_resultado(nome)
+            resultados.append(res)
+            predicoes_por_modelo[nome] = preds
+            print("  Checkpoint seed 42 carregado para comparativo.")
+        continue
 
-    resultados.append(res)
-    predicoes_por_modelo[nome] = preds
-    print(f"  {nome} — MAE: {res['MAE']:.2f}  RMSE: {res['RMSE']:.2f}  MAPE: {res['MAPE']:.2f}%")
+    print(f"\n[5/6] Treinando {nome} (seeds={SEEDS})...")
+    resultado_exp = executar_experimento(
+        nome=nome,
+        seeds=SEEDS,
+        X_tr=X_tr, y_tr=y_tr,
+        X_te=X_te, y_te_real=y_te_real,
+        sc_alvo=sc_alvo,
+        input_shape=input_shape,
+        epochs=EPOCHS_NEURAIS,
+        batch_size=BATCH_NEURAL,
+        caminho_csv=CAMINHO_CSV_SEEDS,
+        denominador_mase=denominador_mase,
+    )
+
+    res_seed42 = resultado_exp["seed42"]["metricas"]
+    preds_seed42 = resultado_exp["seed42"]["preds"]
+    stats_multi_seed[nome] = resultado_exp["stats"]
+
+    _salvar_resultado(nome, res_seed42, preds_seed42)
+
+    resultados.append(res_seed42)
+    predicoes_por_modelo[nome] = preds_seed42
+
+    print(
+        f"  {nome} (seed 42) — MAE: {res_seed42['MAE']:.2f}  "
+        f"RMSE: {res_seed42['RMSE']:.2f}  MAPE: {res_seed42['MAPE']:.2f}%"
+    )
+    stats = stats_multi_seed[nome]
+    if stats:
+        print(
+            f"  {nome} (média±std) — "
+            f"MAE: {stats['MAE_mean']:.2f}±{stats['MAE_std']:.2f}  "
+            f"RMSE: {stats['RMSE_mean']:.2f}±{stats['RMSE_std']:.2f}  "
+            f"MAPE: {stats['MAPE_mean']:.2f}±{stats['MAPE_std']:.2f}%"
+        )
 
 # ── [5/6] TFT ────────────────────────────────────────────────────────────────
 # Subconjunto com as 10 primeiras lojas e 10 primeiros itens (100 séries),
 # reduzindo ~876k para ~175k amostras e tornando o treino viável em CPU.
 print("\n[5/6] Treinando TFT...")
-if _resultado_salvo("TFT"):
+if not _deve_rodar("tft"):
+    print(f"  TFT pulado (--modelo={RODAR}).")
+    if _resultado_salvo("TFT"):
+        res_tft, preds_tft = _carregar_resultado("TFT")
+        resultados.append(res_tft)
+        predicoes_por_modelo["TFT"] = preds_tft
+        print(f"  TFT — MAE: {res_tft['MAE']:.2f}  RMSE: {res_tft['RMSE']:.2f}  MAPE: {res_tft['MAPE']:.2f}%")
+elif _resultado_salvo("TFT"):
     print("  Checkpoint encontrado — pulando treino TFT.")
     res_tft, preds_tft = _carregar_resultado("TFT")
+    resultados.append(res_tft)
+    predicoes_por_modelo["TFT"] = preds_tft
+    print(f"  TFT — MAE: {res_tft['MAE']:.2f}  RMSE: {res_tft['RMSE']:.2f}  MAPE: {res_tft['MAPE']:.2f}%")
 else:
     df_proc_tft = df_proc
     ds_treino_tft, ds_val_tft = preparar_dataset_tft(
@@ -219,25 +293,34 @@ else:
         .values.astype(float)
     )
     min_len = min(len(preds_tft), len(y_real_tft))
-    res_tft = calcular_metricas(y_real_tft[:min_len], preds_tft[:min_len], "TFT")
+    res_tft = calcular_metricas(y_real_tft[:min_len], preds_tft[:min_len], "TFT", mase=None)
     _salvar_resultado("TFT", res_tft, preds_tft)
-
-resultados.append(res_tft)
-predicoes_por_modelo["TFT"] = preds_tft
-print(f"  TFT — MAE: {res_tft['MAE']:.2f}  RMSE: {res_tft['RMSE']:.2f}  MAPE: {res_tft['MAPE']:.2f}%")
+    resultados.append(res_tft)
+    predicoes_por_modelo["TFT"] = preds_tft
+    print(f"  TFT — MAE: {res_tft['MAE']:.2f}  RMSE: {res_tft['RMSE']:.2f}  MAPE: {res_tft['MAPE']:.2f}%")
 
 # ── [6/6] Comparativo final ───────────────────────────────────────────────────
 print("\n[6/6] Gerando comparativo...")
 df_comparativo = comparar_modelos(resultados)
 
 gerar_relatorio(df_comparativo)
+
+if stats_multi_seed:
+    print("\n  Estabilidade multi-seed (média ± std):")
+    for nome, stats in stats_multi_seed.items():
+        print(
+            f"    {nome}: MAE {stats['MAE_mean']:.2f}±{stats['MAE_std']:.2f}  "
+            f"RMSE {stats['RMSE_mean']:.2f}±{stats['RMSE_std']:.2f}  "
+            f"MAPE {stats['MAPE_mean']:.2f}±{stats['MAPE_std']:.2f}%"
+        )
+
 plotar_comparativo_metricas(df_comparativo)
 
-# Visualização das predições dos modelos neurais (escala por série)
-plotar_predicoes(
-    y_real=y_te_real,
-    predicoes_por_modelo=predicoes_por_modelo,
-    titulo="Previsao de Vendas por Serie: Real vs Modelos Neurais",
-)
+if predicoes_por_modelo:
+    plotar_predicoes(
+        y_real=y_te_real,
+        predicoes_por_modelo=predicoes_por_modelo,
+        titulo="Previsao de Vendas por Serie: Real vs Modelos Neurais",
+    )
 
 print("\nPipeline concluido. Resultados em outputs/")
