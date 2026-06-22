@@ -263,74 +263,58 @@ for nome in ["MLP", "LSTM", "GRU"]:
             f"MAPE: {stats['MAPE_mean']:.2f}±{stats['MAPE_std']:.2f}%"
         )
 
-# ── [5/6] TFT ────────────────────────────────────────────────────────────────
-# Subconjunto com as 10 primeiras lojas e 10 primeiros itens (100 séries),
-# reduzindo ~876k para ~175k amostras e tornando o treino viável em CPU.
-print("\n[5/6] Treinando TFT...")
+# ── [5/6] TFT (multi-seed) ──────────────────────────────────────────────────
+CAMINHO_CSV_TFT = "resultados/metricas_tft_por_seed.csv"
+
+print("\n[5/6] Treinando TFT (multi-seed)...")
 if not _deve_rodar("tft"):
     print(f"  TFT pulado (--modelo={RODAR}).")
-    if _resultado_salvo("TFT"):
-        res_tft, preds_tft = _carregar_resultado("TFT")
-        resultados.append(res_tft)
-        predicoes_por_modelo["TFT"] = preds_tft
-        print(f"  TFT — MAE: {res_tft['MAE']:.2f}  RMSE: {res_tft['RMSE']:.2f}  MAPE: {res_tft['MAPE']:.2f}%")
-elif _resultado_salvo("TFT"):
-    print("  Checkpoint encontrado — pulando treino TFT.")
-    res_tft, preds_tft = _carregar_resultado("TFT")
-    resultados.append(res_tft)
-    predicoes_por_modelo["TFT"] = preds_tft
-    print(f"  TFT — MAE: {res_tft['MAE']:.2f}  RMSE: {res_tft['RMSE']:.2f}  MAPE: {res_tft['MAPE']:.2f}%")
 else:
-    import torch
-    torch.manual_seed(42)
-    from src.models.tft import (
-        construir_tft,
-        preparar_dataset_tft,
-        prever_tft,
-        treinar_tft,
-    )
-    if torch.cuda.is_available():
-        print(f"  PyTorch/TFT: GPU detectada — {torch.cuda.get_device_name(0)}")
-        ACELERADOR_TORCH = "gpu"
-    else:
-        print("  PyTorch/TFT: nenhuma GPU detectada, usando CPU.")
-        ACELERADOR_TORCH = "cpu"
-
-    df_proc_tft = df_proc
-    ds_treino_tft, ds_val_tft = preparar_dataset_tft(
-        df_proc_tft, COLUNA_ALVO, COLUNAS_GRUPO,
+    from src.experiments.multi_seed_tft import executar_tft_multiseed
+    executar_tft_multiseed(
+        df_proc, df_treino,
+        coluna_alvo=COLUNA_ALVO,
+        colunas_grupo=COLUNAS_GRUPO,
+        seeds=SEEDS,
+        max_epochs=EPOCHS_TFT,
+        batch_size=BATCH_TFT,
         tamanho_predicao=TFT_HORIZONTE,
-    )
-    modelo_tft = construir_tft(ds_treino_tft)
-
-    # Retoma treino do último checkpoint Lightning, se existir
-    tft_last_ckpt = os.path.join(TFT_CKPT_DIR, "last.ckpt")
-    ckpt_path = tft_last_ckpt if os.path.exists(tft_last_ckpt) else None
-    if ckpt_path:
-        print(f"  Retomando treino TFT de: {ckpt_path}")
-
-    trainer_tft, melhor_tft = treinar_tft(
-        modelo_tft, ds_treino_tft, ds_val_tft,
-        max_epochs=EPOCHS_TFT, batch_size=BATCH_TFT,
+        hidden_size=128,
         checkpoint_dir=TFT_CKPT_DIR,
-        accelerator=ACELERADOR_TORCH,
-        ckpt_path=ckpt_path,
+        caminho_csv=CAMINHO_CSV_TFT,
     )
-    preds_tft = prever_tft(melhor_tft, ds_val_tft, accelerator=ACELERADOR_TORCH)
 
-    # y_real do TFT: últimos TFT_HORIZONTE dias de cada série no subconjunto filtrado
-    data_inicio_val = df_proc_tft["date"].max() - np.timedelta64(TFT_HORIZONTE - 1, "D")
-    y_real_tft = (
-        df_proc_tft[df_proc_tft["date"] >= data_inicio_val]
-        .sort_values(["date", "store", "item"])[COLUNA_ALVO]
-        .values.astype(float)
-    )
-    min_len = min(len(preds_tft), len(y_real_tft))
-    res_tft = calcular_metricas(y_real_tft[:min_len], preds_tft[:min_len], "TFT", mase=None)
-    _salvar_resultado("TFT", res_tft, preds_tft)
-    resultados.append(res_tft)
-    predicoes_por_modelo["TFT"] = preds_tft
-    print(f"  TFT — MAE: {res_tft['MAE']:.2f}  RMSE: {res_tft['RMSE']:.2f}  MAPE: {res_tft['MAPE']:.2f}%")
+# Agrega resultados TFT do CSV (funciona mesmo se o bloco acima foi pulado)
+import pandas as _pd_tft
+if os.path.exists(CAMINHO_CSV_TFT):
+    _df_tft = _pd_tft.read_csv(CAMINHO_CSV_TFT)
+    _df_tft = _df_tft[_df_tft["modelo"] == "TFT"]
+    if not _df_tft.empty:
+        _row42 = _df_tft[_df_tft["seed"] == 42]
+        if not _row42.empty:
+            _r = _row42.iloc[0]
+            _mase_val = _r.get("mase")
+            res_tft = {
+                "modelo": "TFT",
+                "MAE": float(_r["mae"]),
+                "RMSE": float(_r["rmse"]),
+                "MAPE": float(_r["mape"]),
+                "MASE": float(_mase_val) if _pd_tft.notna(_mase_val) else None,
+            }
+            resultados.append(res_tft)
+            print(
+                f"  TFT (seed=42)  MAE: {res_tft['MAE']:.2f}"
+                f"  RMSE: {res_tft['RMSE']:.2f}"
+                f"  MAPE: {res_tft['MAPE']:.2f}%"
+            )
+        stats_multi_seed["TFT"] = {
+            "MAE_mean": float(_df_tft["mae"].mean()),
+            "MAE_std": float(_df_tft["mae"].std()),
+            "RMSE_mean": float(_df_tft["rmse"].mean()),
+            "RMSE_std": float(_df_tft["rmse"].std()),
+            "MAPE_mean": float(_df_tft["mape"].mean()),
+            "MAPE_std": float(_df_tft["mape"].std()),
+        }
 
 # ── [6/6] Comparativo final ───────────────────────────────────────────────────
 print("\n[6/6] Gerando comparativo...")

@@ -1,0 +1,31 @@
+# Ambiente legado para rodar o TFT (GPU, CUDA 11.8)
+#
+# SEPARADO do requirements.txt principal (TensorFlow/Keras dos modelos MLP/LSTM/GRU).
+# Instalar em venv proprio para evitar conflito de versoes numpy e torch.
+#
+# Instalar torch/torchvision/torchaudio com o index da CUDA 11.8:
+#   pip install torch==2.2.2+cu118 torchvision==0.17.2+cu118 torchaudio==2.2.2+cu118 \
+#       --index-url https://download.pytorch.org/whl/cu118
+#
+# Versoes novas do pytorch-lightning (>=2.2) travam silenciosamente no primeiro batch
+# ao usar pytorch-forecasting 1.1.0 — usar exatamente 2.1.3.
+#
+# SHIM necessario: pytorch-forecasting 1.1.0 faz import de lightning.pytorch,
+# mas pytorch-lightning 2.1.3 expoe o modulo como pytorch_lightning.
+# Adicionar antes dos imports do TFT no script de execucao:
+#
+#   import sys
+#   import pytorch_lightning
+#   sys.modules["lightning"] = pytorch_lightning
+#   sys.modules["lightning.pytorch"] = pytorch_lightning
+#
+# Alternativa sem shim: ajustar src/models/tft.py para importar pytorch_lightning
+# diretamente (muda a compatibilidade com ambientes lightning >= 2.2).
+
+torch==2.2.2+cu118
+torchvision==0.17.2+cu118
+torchaudio==2.2.2+cu118
+pytorch-lightning==2.1.3
+pytorch-forecasting==1.1.0
+numpy<2
+setuptools<81

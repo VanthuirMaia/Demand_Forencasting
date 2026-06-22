@@ -102,7 +102,7 @@ def construir_tft(
         dropout=dropout,
         hidden_continuous_size=hidden_size // 8,  # proporcional ao hidden_size
         loss=QuantileLoss(),
-        log_interval=10,
+        log_interval=-1,
         reduce_on_plateau_patience=4,
     )
     print(f"Parametros TFT: {sum(p.numel() for p in modelo.parameters()):,}")
@@ -181,5 +181,5 @@ def prever_tft(
     )
     # predict() retorna tensor (amostras, tamanho_predicao) — flatten para 1D
     if isinstance(predicoes, torch.Tensor):
-        return predicoes.numpy().flatten()
+        return predicoes.cpu().numpy().flatten()
     return np.array(predicoes).flatten()
